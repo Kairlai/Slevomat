@@ -12,7 +12,6 @@ PAYMENTS_FILE = "payments.csv"
 
 # --- POMOCNÉ FUNKCE PRO UKLÁDÁNÍ A NAČÍTÁNÍ ---
 def load_data():
-    # Načtení cílů
     if os.path.exists(GOALS_FILE):
         with open(GOALS_FILE, "r", encoding="utf-8") as f:
             goals = json.load(f)
@@ -23,7 +22,6 @@ def load_data():
             "Vánoce": 25000.0
         }
 
-    # Načtení plateb
     if os.path.exists(PAYMENTS_FILE):
         payments = pd.read_csv(PAYMENTS_FILE)
     else:
@@ -75,7 +73,7 @@ for campaign in list(st.session_state.goals.keys()):
             save_goals()
             st.rerun()
     with col_g2:
-        st.write("") # Odsazení
+        st.write("") 
         if st.button("❌", key=f"del_{campaign}", help=f"Smazat kampaň {campaign}"):
             del st.session_state.goals[campaign]
             save_goals()
@@ -118,10 +116,4 @@ with tab1:
         camp_df = df_p[df_p["Akce"] == campaign] if not df_p.empty else pd.DataFrame()
         raised = camp_df["Částka (Kč)"].sum() if not camp_df.empty else 0.0
         remaining = max(0.0, goal - raised)
-        pct = min(1.0, raised / goal) if goal > 0 else 0.0
-
-        chart_data.append({"Kampaň": campaign, "Vybráno": raised, "Cíl": goal})
-
-        c_col1, c_col2 = st.columns([3, 1])
-        with c_col1:
-            st.markdown(f"**
+        pct = min
