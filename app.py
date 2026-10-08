@@ -30,34 +30,43 @@ if "payments" not in st.session_state:
 st.title("🕯️ Slevomat Účtování & Sledování Cílů")
 st.markdown("Přehledná aplikace pro evidenci vyúčtování ze Slevomatu a plnění prodejních cílů.")
 
-# --- SIDEBAR: SPRÁVA KAMPANÍ ---
-st.sidebar.header("🎯 Nastavení cílů kampaní")
+# --- SIDEBAR: ELEGANTNÍ SPRÁVA KAMPANÍ ---
+st.sidebar.header("🎯 Cíle kampaní")
 
 goals_to_remove = []
-for campaign, current_goal in list(st.session_state.goals.items()):
-    col_g1, col_g2 = st.sidebar.columns([4, 1])
-    with col_g1:
-        new_goal = st.sidebar.number_input(
-            f"{campaign} (Kč)",
-            value=float(current_goal),
-            step=500.0,
-            key=f"goal_input_{campaign}"
-        )
-        st.session_state.goals[campaign] = new_goal
-    with col_g2:
-        if st.sidebar.button("❌", key=f"del_btn_{campaign}", help=f"Smazat kampaň {campaign}"):
-            goals_to_remove.append(campaign)
 
+for campaign, current_goal in list(st.session_state.goals.items()):
+    # 1. Řádek: Název kampaně + tlačítko pro smazání vpravo
+    col_title, col_del = st.sidebar.columns([5, 1])
+    with col_title:
+        st.markdown(f"**{campaign}**")
+    with col_del:
+        if st.button("❌", key=f"del_btn_{campaign}", help=f"Smazat kampaň {campaign}"):
+            goals_to_remove.append(campaign)
+    
+    # 2. Řádek: Vstupní pole pro částku
+    new_goal = st.sidebar.number_input(
+        f"Cíl v Kč ({campaign})",
+        value=float(current_goal),
+        step=500.0,
+        key=f"goal_input_{campaign}",
+        label_visibility="collapsed"
+    )
+    st.session_state.goals[campaign] = new_goal
+    st.sidebar.markdown("---")
+
+# Zpracování smazání kampaní
 if goals_to_remove:
     for c in goals_to_remove:
         del st.session_state.goals[c]
     st.rerun()
 
-st.sidebar.markdown("---")
-st.sidebar.header("➕ Přidat novou kampaň")
-new_campaign_name = st.sidebar.text_input("Název nové kampaně")
-new_campaign_goal = st.sidebar.number_input("Cílová částka (Kč)", min_value=0.0, step=1000.0)
-if st.sidebar.button("Přidat kampaň"):
+# Přidání nové kampaně
+st.sidebar.subheader("➕ Nová kampaň")
+new_campaign_name = st.sidebar.text_input("Název kampaně", key="new_camp_name")
+new_campaign_goal = st.sidebar.number_input("Cílová částka (Kč)", min_value=0.0, step=1000.0, key="new_camp_goal")
+
+if st.sidebar.button("➕ Přidat kampaň", use_container_width=True):
     if new_campaign_name and new_campaign_name not in st.session_state.goals:
         st.session_state.goals[new_campaign_name] = new_campaign_goal
         st.sidebar.success(f"Kampaň '{new_campaign_name}' přidána!")
@@ -132,7 +141,7 @@ with tab2:
 
     st.markdown("---")
     st.subheader("📋 Seznam a úprava evidovaných plateb")
-    st.caption("💡 Údaje můžete upravovat přímo v tabulce. Přidávat nebo mazat řádky lze tlačítky přímo pod tabulkou.")
+    st.caption("💡 Údaje můžete upravovat přímo v tabulce. Nové řádky lze přidat na konci tabulky.")
     
     edited_df = st.data_editor(
         st.session_state.payments,
