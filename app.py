@@ -199,10 +199,6 @@ with tab3:
     st.markdown("#### Souhrnný přehled cílů")
     st.dataframe(df_summary, use_container_width=True)
     
-    csv_data = df_summary.to_csv(index=False).encode('utf-8')
-    st.download_button(
-        label="📄 Stáhnout přehled jako CSV",
-        data=csv_data,
-        file_name="slevomat_prehled_cilu.csv",
-        mime="text/csv"
-    )
+  # sep=';' rozstrká data do samostatných buněk v českém Excelu
+    # 'utf-8-sig' zajistí správné zobrazení češtiny (háčky/čárky)
+    csv_data = df_summary.to_csv(index=False, sep=';').encode('utf-8-sig')
