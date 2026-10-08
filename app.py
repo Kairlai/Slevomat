@@ -1,68 +1,62 @@
 import streamlit as st
 import pandas as pd
 
-# Page configuration
+# Konfigurace stránky
 st.set_page_config(page_title="Slevomat Dashboard", page_icon="🕯️", layout="wide")
 
 def fmt_czk(amount):
     """Formátování částky na český tvar (1 234,56 Kč)"""
     return f"{amount:,.2f} Kč".replace(",", " ").replace(".", ",")
 
-# --- INICIALIZACE DATOVÉHO STAVU (SESSION STATE) ---
+# --- INICIALIZACE DATOVÉHO STAVU ---
 if "goals" not in st.session_state:
     st.session_state.goals = {
         "Jen tak (celoroční)": 15436.0,
         "Podzim": 17643.0,
-        "Vánoce": 25000.0
+        "Vánoce": 0.0
     }
 
 if "payments" not in st.session_state:
+    # Přesná data z obrázku
     st.session_state.payments = pd.DataFrame([
-        {"Akce": "Jen tak (celoroční)", "Datum / Doklad": "FVSP-131966/2026 (21.8.)", "Částka (Kč)": 536.35},
-        {"Akce": "Jen tak (celoroční)", "Datum / Doklad": "FVSP-137120/2026 (2.9.)", "Částka (Kč)": 265.00},
-        {"Akce": "Jen tak (celoroční)", "Datum / Doklad": "FVSP-142249/2026 (11.9.)", "Částka (Kč)": 352.42},
-        {"Akce": "Jen tak (celoroční)", "Datum / Doklad": "FVSP-147112/2026 (21.9.)", "Částka (Kč)": 90.45},
-        {"Akce": "Jen tak (celoroční)", "Datum / Doklad": "FVSP-152319/2026 (2.10.)", "Částka (Kč)": 768.06},
-        {"Akce": "Podzim", "Datum / Doklad": "FVSP-152318/2026 (2.10.)", "Částka (Kč)": 973.72},
+        {"Akce": "Jen tak (celoroční)", "Datum / Doklad": "Platba 1", "Částka (Kč)": 1770.94},
+        {"Akce": "Jen tak (celoroční)", "Datum / Doklad": "Platba 2", "Částka (Kč)": 208.55},
+        {"Akce": "Jen tak (celoroční)", "Datum / Doklad": "Platba 3", "Částka (Kč)": 812.58},
+        {"Akce": "Jen tak (celoroční)", "Datum / Doklad": "Platba 4", "Částka (Kč)": 611.00},
+        {"Akce": "Jen tak (celoroční)", "Datum / Doklad": "Platba 5", "Částka (Kč)": 1236.65},
+        {"Akce": "Podzim", "Datum / Doklad": "Platba 1", "Částka (Kč)": 2245.28},
     ])
 
 # --- HLAVIČKA ---
 st.title("🕯️ Slevomat Účtování & Sledování Cílů")
 st.markdown("Přehledná aplikace pro evidenci vyúčtování ze Slevomatu a plnění prodejních cílů.")
 
-# --- SIDEBAR: ELEGANTNÍ SPRÁVA KAMPANÍ ---
-st.sidebar.header("🎯 Cíle kampaní")
+# --- SIDEBAR: EDITACE CÍLŮ S TLAČÍTKEM ULOŽIT (OPTIMALIZOVÁNO PRO MOBILY) ---
+st.sidebar.header("🎯 Nastavení cílů kampaní")
 
-goals_to_remove = []
-
-for campaign, current_goal in list(st.session_state.goals.items()):
-    # 1. Řádek: Název kampaně + tlačítko pro smazání vpravo
-    col_title, col_del = st.sidebar.columns([5, 1])
-    with col_title:
-        st.markdown(f"**{campaign}**")
-    with col_del:
-        if st.button("❌", key=f"del_btn_{campaign}", help=f"Smazat kampaň {campaign}"):
-            goals_to_remove.append(campaign)
+with st.sidebar.form("goals_form"):
+    st.write("Upravte cíle a stiskněte tlačítko níže:")
+    updated_goals = {}
     
-    # 2. Řádek: Vstupní pole pro částku
-    new_goal = st.sidebar.number_input(
-        f"Cíl v Kč ({campaign})",
-        value=float(current_goal),
-        step=500.0,
-        key=f"goal_input_{campaign}",
-        label_visibility="collapsed"
-    )
-    st.session_state.goals[campaign] = new_goal
-    st.sidebar.markdown("---")
+    for campaign, current_goal in st.session_state.goals.items():
+        updated_goals[campaign] = st.number_input(
+            f"Cíl: {campaign} (Kč)",
+            value=float(current_goal),
+            min_value=0.0,
+            step=500.0,
+            key=f"input_goal_{campaign}"
+        )
+    
+    save_goals_submitted = st.form_submit_button("💾 Uložit všechny cíle", use_container_width=True)
+    if save_goals_submitted:
+        st.session_state.goals = updated_goals
+        st.success("Cíle byly úspěšně uloženy!")
+        st.rerun()
 
-# Zpracování smazání kampaní
-if goals_to_remove:
-    for c in goals_to_remove:
-        del st.session_state.goals[c]
-    st.rerun()
+st.sidebar.markdown("---")
 
-# Přidání nové kampaně
-st.sidebar.subheader("➕ Nová kampaň")
+# Správa - Přidání nové kampaně
+st.sidebar.subheader("➕ Přidat novou kampaň")
 new_campaign_name = st.sidebar.text_input("Název kampaně", key="new_camp_name")
 new_campaign_goal = st.sidebar.number_input("Cílová částka (Kč)", min_value=0.0, step=1000.0, key="new_camp_goal")
 
@@ -71,6 +65,17 @@ if st.sidebar.button("➕ Přidat kampaň", use_container_width=True):
         st.session_state.goals[new_campaign_name] = new_campaign_goal
         st.sidebar.success(f"Kampaň '{new_campaign_name}' přidána!")
         st.rerun()
+
+# Správa - Smazání kampaně
+if st.session_state.goals:
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("🗑️ Smazat kampaň")
+    camp_to_delete = st.sidebar.selectbox("Vyberte kampaň ke smazání", ["-- Vyberte --"] + list(st.session_state.goals.keys()))
+    if st.sidebar.button("❌ Smazat kampaň", use_container_width=True):
+        if camp_to_delete != "-- Vyberte --":
+            del st.session_state.goals[camp_to_delete]
+            st.sidebar.success(f"Kampaň '{camp_to_delete}' byla smazána!")
+            st.rerun()
 
 # --- HLAVNÍ OBSAH: 3 ZÁLOŽKY ---
 tab1, tab2, tab3 = st.tabs(["📊 Přehled & Cíle", "💰 Správa plateb", "📥 Export & Nastavení"])
@@ -128,7 +133,7 @@ with tab2:
             with col_a:
                 selected_camp = st.selectbox("Kampaň / Akce", list(st.session_state.goals.keys()))
             with col_b:
-                doc_label = st.text_input("Číslo dokladu / Poznámka", value="FVSP-XXXXXX/2026")
+                doc_label = st.text_input("Číslo dokladu / Poznámka", value="Platba")
             with col_c:
                 amount = st.number_input("Částka (Kč)", min_value=0.0, step=100.0, format="%.2f")
                 
@@ -172,7 +177,7 @@ with tab3:
     st.markdown("#### Souhrnný přehled cílů")
     st.dataframe(df_summary, use_container_width=True)
     
-    # Export s oddělovačem ';' a kódováním 'utf-8-sig' pro český Excel
+    # Export pro český Excel (středník + utf-8-sig)
     csv_bytes = df_summary.to_csv(index=False, sep=';').encode('utf-8-sig')
     
     st.download_button(
