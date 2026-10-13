@@ -1,24 +1,71 @@
+import base64
+from datetime import datetime
+import io
+import json
+import os
+import requests
 import streamlit as st
 import pandas as pd
 
 # Konfigurace stránky
 st.set_page_config(page_title="Slevomat Dashboard", page_icon="🕯️", layout="wide")
 
+GOALS_FILE = "slevomat_cile.json"
+PAYMENTS_FILE = "slevomat_platby.csv"
+
+GITHUB_TOKEN = st.secrets.get("GITHUB_TOKEN", "")
+GITHUB_REPO = st.secrets.get("GITHUB_REPO", "")
+
+def get_headers():
+    return {"Authorization": f"token {GITHUB_TOKEN}", "Accept": "application/vnd.github.v3+json"}
+
 def fmt_czk(amount):
     """Formátování částky na český tvar (1 234,56 Kč)"""
     return f"{amount:,.2f} Kč".replace(",", " ").replace(".", ",")
 
-# --- INICIALIZACE DATOVÉHO STAVU ---
-if "goals" not in st.session_state:
-    st.session_state.goals = {
+# --- TRVALÉ UKLÁDÁNÍ CÍLŮ ---
+def nacti_cile():
+    vychozi_cile = {
         "Jen tak (celoroční)": 15436.0,
         "Podzim": 17643.0,
         "Vánoce": 0.0
     }
+    if not GITHUB_TOKEN or not GITHUB_REPO:
+        if not os.path.exists(GOALS_FILE):
+            with open(GOALS_FILE, "w", encoding="utf-8") as f:
+                json.dump(vychozi_cile, f, ensure_ascii=False, indent=2)
+            return vychozi_cile, None
+        with open(GOALS_FILE, "r", encoding="utf-8") as f:
+            return json.load(f), None
 
-if "payments" not in st.session_state:
-    # Přesná data z obrázku
-    st.session_state.payments = pd.DataFrame([
+    url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{GOALS_FILE}"
+    res = requests.get(url, headers=get_headers())
+    if res.status_code == 200:
+        data = res.json()
+        sha = data["sha"]
+        content_str = base64.b64decode(data["content"]).decode("utf-8")
+        return json.loads(content_str), sha
+    else:
+        return vychozi_cile, None
+
+def uloz_cile(cile_dict, sha=None):
+    obsah = json.dumps(cile_dict, ensure_ascii=False, indent=2)
+    if not GITHUB_TOKEN or not GITHUB_REPO:
+        with open(GOALS_FILE, "w", encoding="utf-8") as f:
+            f.write(obsah)
+        return True
+
+    url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{GOALS_FILE}"
+    content_b64 = base64.b64encode(obsah.encode("utf-8")).decode("utf-8")
+    payload = {"message": "Aktualizace cilu kampani Slevomat", "content": content_b64}
+    if sha:
+        payload["sha"] = sha
+    res = requests.put(url, headers=get_headers(), json=payload)
+    return res.status_code in [200, 201]
+
+# --- TRVALÉ UKLÁDÁNÍ PLATEB ---
+def nacti_platby():
+    vychozi_platby = pd.DataFrame([
         {"Akce": "Jen tak (celoroční)", "Datum / Doklad": "Platba 1", "Částka (Kč)": 1770.94},
         {"Akce": "Jen tak (celoroční)", "Datum / Doklad": "Platba 2", "Částka (Kč)": 208.55},
         {"Akce": "Jen tak (celoroční)", "Datum / Doklad": "Platba 3", "Částka (Kč)": 812.58},
@@ -26,12 +73,51 @@ if "payments" not in st.session_state:
         {"Akce": "Jen tak (celoroční)", "Datum / Doklad": "Platba 5", "Částka (Kč)": 1236.65},
         {"Akce": "Podzim", "Datum / Doklad": "Platba 1", "Částka (Kč)": 2245.28},
     ])
+    
+    if not GITHUB_TOKEN or not GITHUB_REPO:
+        if not os.path.exists(PAYMENTS_FILE):
+            vychozi_platby.to_csv(PAYMENTS_FILE, index=False)
+            return vychozi_platby, None
+        return pd.read_csv(PAYMENTS_FILE), None
+
+    url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{PAYMENTS_FILE}"
+    res = requests.get(url, headers=get_headers())
+    if res.status_code == 200:
+        data = res.json()
+        sha = data["sha"]
+        content_str = base64.b64decode(data["content"]).decode("utf-8")
+        return pd.read_csv(io.StringIO(content_str)), sha
+    else:
+        return vychozi_platby, None
+
+def uloz_platby(df, sha=None):
+    if not GITHUB_TOKEN or not GITHUB_REPO:
+        df.to_csv(PAYMENTS_FILE, index=False)
+        return True
+
+    url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{PAYMENTS_FILE}"
+    csv_buffer = io.StringIO()
+    df.to_csv(csv_buffer, index=False)
+    content_b64 = base64.b64encode(csv_buffer.getvalue().encode("utf-8")).decode("utf-8")
+
+    payload = {"message": "Aktualizace plateb Slevomat", "content": content_b64}
+    if sha:
+        payload["sha"] = sha
+    res = requests.put(url, headers=get_headers(), json=payload)
+    return res.status_code in [200, 201]
+
+# --- NAČTENÍ DAT PŘI BĚHU ---
+cile_aktualni, sha_cile = nacti_cile()
+df_platby, sha_platby = nacti_platby()
+
+st.session_state.goals = cile_aktualni
+st.session_state.payments = df_platby
 
 # --- HLAVIČKA ---
 st.title("🕯️ Slevomat Účtování & Sledování Cílů")
 st.markdown("Přehledná aplikace pro evidenci vyúčtování ze Slevomatu a plnění prodejních cílů.")
 
-# --- SIDEBAR: EDITACE CÍLŮ S TLAČÍTKEM ULOŽIT (OPTIMALIZOVÁNO PRO MOBILY) ---
+# --- SIDEBAR: EDITACE CÍLŮ ---
 st.sidebar.header("🎯 Nastavení cílů kampaní")
 
 with st.sidebar.form("goals_form"):
@@ -49,9 +135,12 @@ with st.sidebar.form("goals_form"):
     
     save_goals_submitted = st.form_submit_button("💾 Uložit všechny cíle", use_container_width=True)
     if save_goals_submitted:
-        st.session_state.goals = updated_goals
-        st.success("Cíle byly úspěšně uloženy!")
-        st.rerun()
+        if uloz_cile(updated_goals, sha_cile):
+            st.session_state.goals = updated_goals
+            st.success("✅ Cíle byly úspěšně trvale uloženy!")
+            st.rerun()
+        else:
+            st.error("❌ Chyba při ukládání cílů na GitHub.")
 
 st.sidebar.markdown("---")
 
@@ -63,8 +152,11 @@ new_campaign_goal = st.sidebar.number_input("Cílová částka (Kč)", min_value
 if st.sidebar.button("➕ Přidat kampaň", use_container_width=True):
     if new_campaign_name and new_campaign_name not in st.session_state.goals:
         st.session_state.goals[new_campaign_name] = new_campaign_goal
-        st.sidebar.success(f"Kampaň '{new_campaign_name}' přidána!")
-        st.rerun()
+        if uloz_cile(st.session_state.goals, sha_cile):
+            st.sidebar.success(f"✅ Kampaň '{new_campaign_name}' přidána a uložena!")
+            st.rerun()
+        else:
+            st.sidebar.error("❌ Chyba při ukládání na GitHub.")
 
 # Správa - Smazání kampaně
 if st.session_state.goals:
@@ -74,8 +166,11 @@ if st.session_state.goals:
     if st.sidebar.button("❌ Smazat kampaň", use_container_width=True):
         if camp_to_delete != "-- Vyberte --":
             del st.session_state.goals[camp_to_delete]
-            st.sidebar.success(f"Kampaň '{camp_to_delete}' byla smazána!")
-            st.rerun()
+            if uloz_cile(st.session_state.goals, sha_cile):
+                st.sidebar.success(f"✅ Kampaň '{camp_to_delete}' byla smazána!")
+                st.rerun()
+            else:
+                st.sidebar.error("❌ Chyba při ukládání na GitHub.")
 
 # --- HLAVNÍ OBSAH: 3 ZÁLOŽKY ---
 tab1, tab2, tab3 = st.tabs(["📊 Přehled & Cíle", "💰 Správa plateb", "📥 Export & Nastavení"])
@@ -140,13 +235,18 @@ with tab2:
             submitted = st.form_submit_button("Uložit platbu")
             if submitted and amount > 0:
                 new_entry = pd.DataFrame([{"Akce": selected_camp, "Datum / Doklad": doc_label, "Částka (Kč)": amount}])
-                st.session_state.payments = pd.concat([st.session_state.payments, new_entry], ignore_index=True)
-                st.success("Platba byla úspěšně přidána!")
-                st.rerun()
+                df_updated = pd.concat([st.session_state.payments, new_entry], ignore_index=True)
+                
+                if uloz_platby(df_updated, sha_platby):
+                    st.session_state.payments = df_updated
+                    st.success("✅ Platba byla úspěšně přidána a trvale uložena!")
+                    st.rerun()
+                else:
+                    st.error("❌ Chyba při ukládání platby na GitHub.")
 
     st.markdown("---")
     st.subheader("📋 Seznam a úprava evidovaných plateb")
-    st.caption("💡 Údaje můžete upravovat přímo v tabulce. Nové řádky lze přidat na konci tabulky.")
+    st.caption("💡 Údaje můžete upravovat přímo v tabulce. Po provedení změn klikněte na tlačítko 'Uložit úpravy v tabulce' níže.")
     
     edited_df = st.data_editor(
         st.session_state.payments,
@@ -154,7 +254,14 @@ with tab2:
         num_rows="dynamic",
         key="payments_editor_grid"
     )
-    st.session_state.payments = edited_df
+    
+    if st.button("💾 Uložit úpravy v tabulce plateb", type="primary"):
+        if uloz_platby(edited_df, sha_platby):
+            st.session_state.payments = edited_df
+            st.success("✅ Úpravy v tabulce byly úspěšně uloženy!")
+            st.rerun()
+        else:
+            st.error("❌ Chyba při ukládání změn na GitHub.")
 
 with tab3:
     st.subheader("📥 Export dat")
