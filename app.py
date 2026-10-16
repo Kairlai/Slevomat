@@ -53,7 +53,7 @@ def uloz_cile(cile_dict, sha=None):
     if not GITHUB_TOKEN or not GITHUB_REPO:
         with open(GOALS_FILE, "w", encoding="utf-8") as f:
             f.write(obsah)
-        return True
+        return True, None
 
     url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{GOALS_FILE}"
     content_b64 = base64.b64encode(obsah.encode("utf-8")).decode("utf-8")
@@ -61,7 +61,12 @@ def uloz_cile(cile_dict, sha=None):
     if sha:
         payload["sha"] = sha
     res = requests.put(url, headers=get_headers(), json=payload)
-    return res.status_code in [200, 201]
+    
+    # OPRAVA: Vracíme True a zároveň i NOVÉ SHA od GitHubu
+    if res.status_code in [200, 201]:
+        return True, res.json()["content"]["sha"]
+    else:
+        return False, None
 
 # --- TRVALÉ UKLÁDÁNÍ PLATEB ---
 def nacti_platby():
@@ -93,7 +98,7 @@ def nacti_platby():
 def uloz_platby(df, sha=None):
     if not GITHUB_TOKEN or not GITHUB_REPO:
         df.to_csv(PAYMENTS_FILE, index=False)
-        return True
+        return True, None
 
     url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{PAYMENTS_FILE}"
     csv_buffer = io.StringIO()
@@ -104,14 +109,25 @@ def uloz_platby(df, sha=None):
     if sha:
         payload["sha"] = sha
     res = requests.put(url, headers=get_headers(), json=payload)
-    return res.status_code in [200, 201]
+    
+    # OPRAVA: Vracíme True a zároveň i NOVÉ SHA od GitHubu
+    if res.status_code in [200, 201]:
+        return True, res.json()["content"]["sha"]
+    else:
+        return False, None
 
-# --- NAČTENÍ DAT PŘI BĚHU ---
-cile_aktualni, sha_cile = nacti_cile()
-df_platby, sha_platby = nacti_platby()
+# --- NAČTENÍ DAT PŘI BĚHU (Optimalizováno pro rychlost a ochranu stavu) ---
+if "data_loaded" not in st.session_state:
+    cile_aktualni, sha_cile = nacti_cile()
+    df_platby, sha_platby = nacti_platby()
 
-st.session_state.goals = cile_aktualni
-st.session_state.payments = df_platby
+    st.session_state.goals = cile_aktualni
+    st.session_state.sha_cile = sha_cile
+    
+    st.session_state.payments = df_platby
+    st.session_state.sha_platby = sha_platby
+    
+    st.session_state.data_loaded = True
 
 # --- HLAVIČKA ---
 st.title("🕯️ Slevomat Účtování & Sledování Cílů")
@@ -135,8 +151,10 @@ with st.sidebar.form("goals_form"):
     
     save_goals_submitted = st.form_submit_button("💾 Uložit všechny cíle", use_container_width=True)
     if save_goals_submitted:
-        if uloz_cile(updated_goals, sha_cile):
+        success, new_sha = uloz_cile(updated_goals, st.session_state.sha_cile)
+        if success:
             st.session_state.goals = updated_goals
+            st.session_state.sha_cile = new_sha # Uložíme nové SHA
             st.success("✅ Cíle byly úspěšně trvale uloženy!")
             st.rerun()
         else:
@@ -152,7 +170,9 @@ new_campaign_goal = st.sidebar.number_input("Cílová částka (Kč)", min_value
 if st.sidebar.button("➕ Přidat kampaň", use_container_width=True):
     if new_campaign_name and new_campaign_name not in st.session_state.goals:
         st.session_state.goals[new_campaign_name] = new_campaign_goal
-        if uloz_cile(st.session_state.goals, sha_cile):
+        success, new_sha = uloz_cile(st.session_state.goals, st.session_state.sha_cile)
+        if success:
+            st.session_state.sha_cile = new_sha # Uložíme nové SHA
             st.sidebar.success(f"✅ Kampaň '{new_campaign_name}' přidána a uložena!")
             st.rerun()
         else:
@@ -166,7 +186,9 @@ if st.session_state.goals:
     if st.sidebar.button("❌ Smazat kampaň", use_container_width=True):
         if camp_to_delete != "-- Vyberte --":
             del st.session_state.goals[camp_to_delete]
-            if uloz_cile(st.session_state.goals, sha_cile):
+            success, new_sha = uloz_cile(st.session_state.goals, st.session_state.sha_cile)
+            if success:
+                st.session_state.sha_cile = new_sha # Uložíme nové SHA
                 st.sidebar.success(f"✅ Kampaň '{camp_to_delete}' byla smazána!")
                 st.rerun()
             else:
@@ -237,8 +259,10 @@ with tab2:
                 new_entry = pd.DataFrame([{"Akce": selected_camp, "Datum / Doklad": doc_label, "Částka (Kč)": amount}])
                 df_updated = pd.concat([st.session_state.payments, new_entry], ignore_index=True)
                 
-                if uloz_platby(df_updated, sha_platby):
+                success, new_sha = uloz_platby(df_updated, st.session_state.sha_platby)
+                if success:
                     st.session_state.payments = df_updated
+                    st.session_state.sha_platby = new_sha # Uložíme nové SHA
                     st.success("✅ Platba byla úspěšně přidána a trvale uložena!")
                     st.rerun()
                 else:
@@ -256,8 +280,10 @@ with tab2:
     )
     
     if st.button("💾 Uložit úpravy v tabulce plateb", type="primary"):
-        if uloz_platby(edited_df, sha_platby):
+        success, new_sha = uloz_platby(edited_df, st.session_state.sha_platby)
+        if success:
             st.session_state.payments = edited_df
+            st.session_state.sha_platby = new_sha # Uložíme nové SHA
             st.success("✅ Úpravy v tabulce byly úspěšně uloženy!")
             st.rerun()
         else:
